@@ -1,17 +1,19 @@
 import h5py
 import torch
 import numpy as np
-from functools import partial
+import pandas as pd
+
 from tqdm import tqdm
+from functools import partial
+from contextlib import contextmanager
+from scipy.ndimage import sobel
 
 class Meta:
-    def __init__(self, shape, ranges, lib):
+    def __init__(self, shape, ranges, lib=np):
         self.shape = np.copy(shape)
         self.ranges = np.copy(ranges)
-        voxel_size = np.diff(ranges).flat / shape
-        self.voxel_size = voxel_size.astype(np.float32)
         self.lib = lib
-        
+       
     def __repr__(self):
         s = 'Meta'
         for i,var in enumerate('xyz'):
@@ -19,10 +21,6 @@ class Meta:
             x0, x1 = self.ranges[i]
             s += f' {var}:({x0},{x1},{bins})'
         return s
-
-    @property
-    def max_voxel_id(self):
-        return np.product(self.shape)
 
     @property
     def bins(self):
@@ -38,6 +36,18 @@ class Meta:
         centers = tuple((b[1:] + b[:-1]) / 2. for b in self.bins)
         return centers
         
+    @property
+    def voxel_size(self):
+        voxel_size = np.diff(self.ranges).flat / self.shape
+        return voxel_size.astype(np.float32)
+
+    @property
+    def norm_step_size(self):
+        return 2. / self.shape
+
+    @property
+    def length(self):
+        return np.diff(self.ranges).squeeze()
 
     def __len__(self):
         return np.product(self.shape)
@@ -56,7 +66,7 @@ class Meta:
         return None
 
     @classmethod
-    def load_file(cls, fname, lib=np):
+    def load(cls, fname, lib=np):
         with h5py.File(fname, 'r') as f:
             shape = f['numvox'][:]
             ranges = np.column_stack((f['min'], f['max']))
@@ -103,35 +113,41 @@ class Meta:
         coord = (idx+0.5) * voxel_size
         coord += ranges[:, 0]
         return coord
-    
+
     def voxel_to_coord(self, voxel, norm=False):
         idx = self.voxel_to_idx(voxel)
         return self.idx_to_coord(idx, norm)
+    
+    def coord_to_idx(self, coord, norm=False):
+        # TODO(2021-10-29 kvt) validate coord_to_idx
+        # TODO(2021-10-29 kvt) check ranges
+        coord = self._as_type(coord)
+        device = self.device(coord)
 
-    def transform(self, x):
-        a = 0.999
-        e = 1e-6
-        high = np.log(a*(1+e))
-        low = np.log(a*e)
+        if norm:
+            step = self._as_type(self.norm_step_size, device=device)
+            idx = (coord + 1.) / step
+        else:
+            step = self._as_type(self.voxel_size, device=device)
+            ranges = self._as_type(self.ranges, device=device)
+            idx = (coord - ranges[:,0]) / step
 
-        y = self.lib.log(a*(x+e))
-        y -= low
-        y /= (high - low)
-        y *= 2
-        y -= 1
-        return y
+        idx = self.as_int64(idx)
+        idx[idx<0] == 0
+        for axis in range(3):
+            n = self.shape[axis]
+            mask = idx[...,axis] >= n
+            idx[mask,axis] = n-1
 
-    def inv_transform(self, y):
-        a = 0.999
-        e = 1e-6
-        high = np.log(a*(1+e))
-        low = np.log(a*e)
+        return idx
 
-        x = y + 1
-        x /= 2
-        x *= (high - low)
-        x += low
-        return self.lib.exp(x)/a - e
+    def as_int64(self, idx):
+        if isinstance(idx, np.ndarray):
+            idx = idx.astype(self.lib.int64)
+        else:
+            idx = idx.type(self.lib.int64)
+        return idx
+
 
     def self_check(self, n=1000):
         prev_lib = self.lib
@@ -153,7 +169,7 @@ class Meta:
             if not np.all(np.abs(coord - pos) < meta.voxel_size):
                 raise RunTimeError('voxel_to_coord', pos)
 
-            vox = np.random.randint(low=0, high=meta.max_voxel_id)
+            vox = np.random.randint(low=0, high=len(meta))
             idx = meta.voxel_to_idx(vox)
             pos = meta.voxel_to_coord(pos)
 
@@ -187,63 +203,181 @@ class Meta:
 
         idx = np.column_stack([g.flatten() for g in np.meshgrid(*grid)])
         return self._as_type(idx, device=device)
+    
+    def check_valid_idx(self, idx, return_components=False):
+        idx = self._as_type(idx)
+        shape = self._as_type(self.shape)
+        mask = (idx >= 0) & (idx < shape)
 
+        if return_components:
+            return mask
+
+        return self.lib.all(mask, axis=-1)
+
+    @contextmanager
+    def use_lib(self, lib):
+        prev_lib = self.lib
+        self.lib = lib
+        try:
+            yield self
+        finally:
+            self.lib = prev_lib
+
+    def norm_coord(self, pos):
+        pos = self._as_type(pos)
+        device = self.device(pos)
+
+        ranges = self._as_type(self.ranges, device=device)
+
+        norm_pos = pos - ranges[:,0]
+        norm_pos /= self._as_type(self.length, device=device)
+        norm_pos *= 2.
+        norm_pos -= 1.
+
+        return norm_pos
+
+    def digitize(self, x, axis, norm=False):
+        x = self._as_type(x)
+        device = self.device(x)
+        axis = self.select_axis(axis)[0]
+        n = self.shape[axis]
+
+        if norm:
+            xmin = -1
+            step = self.norm_step_size[axis]
+        else:
+            xmin = self.ranges[axis, 0]
+            step = self.voxel_size[axis]
+
+        idx = self.as_int64((x - xmin) / step)
+
+        # TODO: (2021-10-29 kvt) exception?
+        idx[idx<0] = 0
+        idx[idx>=n] = n-1
+
+        return idx
 
 class PhotonLib:
-    
-    def __init__(self, meta, vis):
+    def __init__(self, meta, vis, pmt_pos=None, transform=False, eps=1e-7, lib=np):
         self.meta = meta
-        self.vis = vis
+
+        if transform:
+            print(f'[PhotonLib] transform(eps={eps})')
+            self.vis = self.transform(vis, eps)
+        else:
+            self.vis = vis
+
+        if pmt_pos is not None:
+            self.pmt_pos = pmt_pos
+            self.pmt_pos_norm = meta.norm_coord(pmt_pos)
     
     @classmethod
-    def load_file(cls, filepath):
-        meta = Meta.load_file(filepath)
+    def load(cls, filepath, pmt_loc=None, lib=np, **kwargs):
+        meta = Meta.load(filepath, lib=lib)
         
-        print(f'Opening PhotonLib {filepath}')
+        print(f'[PhotonLib] loading {filepath}')
         with h5py.File(filepath, 'r') as f:
             vis = f['vis'][:]
-        print('PhotonLib file closed')
-        
-        plib = cls(meta, vis.astype(np.float32))
-        plib.create_view()
+        print('[PhotonLib] file loaded')
+
+        pmt_pos = None
+        if pmt_loc is not None:
+            pmt_pos = PhotonLib.load_pmt_loc(pmt_loc)
+
+        plib = cls(meta, vis, pmt_pos, **kwargs)
+
         return plib
+
+    @staticmethod
+    def load_pmt_loc(fpath):
+        df = pd.read_csv(fpath)
+        pmt_pos = df[['x', 'y', 'z']].to_numpy()
+        return pmt_pos
     
-    def create_view(self):
+
+    def view(self, arr):
         shape = list(self.meta.shape[::-1]) + [-1]
-        self._vis_view = np.swapaxes(self.vis.reshape(shape), 0, 2)
-              
+        return np.swapaxes(arr.reshape(shape), 0, 2)
+
+    @property
+    def vis_view(self):
+        return self.view(self.vis)
+
     def __repr__(self):
         return f'{self.__class__} [:memory:]'
     
     def __len__(self):
         return len(self.vis)
     
+    @property
+    def n_pmts(self):
+        return self.vis.shape[1]
+     
     def __getitem__(self, vox_id):    
         return self.vis[vox_id]
-                
-    def view(self, axis, idx, ch=None, return_ranges=False):
-        axis_to_num = dict(x=0, y=1, z=2)
-        
-        if isinstance(axis, str) and axis in axis_to_num:
-            axis = axis_to_num[axis]
-            
-        axis_others = [0, 1, 2]
-        if axis not in axis_others:
-            raise IndexError(f'unknown axis {axis}')
-        axis_others.pop(axis)
-        
-        mask = [slice(None)] * 4
-        mask[axis] = idx
 
-        if ch is None:
-            output = [self._vis_view[tuple(mask)].sum(axis=-1)]
+    def gradient_on_fly(self, voxel_id):
+        with self.meta.use_lib(np):
+            idx = self.meta.voxel_to_idx(voxel_id)
+
+        center = np.ones_like(idx)
+        center[idx == 0] = 0
+        center = tuple(center)
+
+        high = idx + 2
+        low = idx - 1
+        low[low<0] = 0
+        selected = selected = tuple(slice(l,h) for l,h in zip(low, high))
+
+        data = self.vis_view[selected]
+        grad = np.column_stack([
+            [sobel(data[...,pmt], i)[center] for i in range(3)]
+            for pmt in range(self.n_pmts)
+        ])
+
+        return grad
+
+    def gradient_from_cache(self, voxel_id):
+        if self.grad_cache is None:
+            raise RunTimeError('grad_cache not loaded')
+
+        return self.grad_cache[voxel_id]
+
+    def gradient(self, voxel_id):
+        if self.grad_cache is not None:
+            grad = self.gradient_from_cache(voxel_id)
         else:
-            mask[3] = ch
-            output = [self._vis_view[tuple(mask)]]
-        
-        if return_ranges:
-            output.append(self.meta.ranges[axis_others])
-        
-        if len(output) == 1:
-            return output[0]
-        return tuple(output)
+            grad = self.gradient_on_fly(voxel_id)
+
+        # convert to dV/dx for comparison with torch.autograd.grad
+        # sobel = gaus [1,2,1] (x) gaus [1,2,1] (x) diff [1,0,-1]
+        # resacle with a factor of  4x4 (gauss) and 2 (finite diff.)
+        # grad /= self.meta.norm_step_size * 32
+        return grad
+
+    def grad_view(self, d_axis):
+        if self.grad_cache is None:
+            raise NotImplementedError('gradient_view requires caching')
+
+        d_axis = self.meta.select_axis(d_axis)[0]
+        return self.view(self.grad_cache[:,d_axis])
+
+    @staticmethod
+    def transform(x, eps=1e-7, lib=np):
+        y0 = np.log10(eps)
+        y1 = np.log10(1. + eps)
+
+        y = lib.log10(x + eps)
+        y -= y0
+        y /= (y1 - y0)
+        return y
+
+    @staticmethod
+    def inv_transform(y, eps=1e-7, lib=np):
+        y0 = np.log10(eps)
+        y1 = np.log10(1. + eps)
+
+        x = 10 ** (y * (y1-y0) + y0)
+        x -= eps
+
+        return x
