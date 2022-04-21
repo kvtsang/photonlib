@@ -258,12 +258,15 @@ class Meta:
         return idx
 
 class PhotonLib:
-    def __init__(self, meta, vis, pmt_pos=None, transform=False, eps=1e-7, lib=np):
+    def __init__(
+        self, meta, vis, pmt_pos=None, 
+        transform=False, eps=1e-7, vmax=1, lib=np
+    ):
         self.meta = meta
 
         if transform:
-            print(f'[PhotonLib] transform(eps={eps})')
-            self.vis = self.transform(vis, eps)
+            print(f'[PhotonLib] transform(vmax={vmax}, eps={eps})')
+            self.vis = self.transform(vis, vmax, eps)
         else:
             self.vis = vis
 
@@ -363,9 +366,9 @@ class PhotonLib:
         return self.view(self.grad_cache[:,d_axis])
 
     @staticmethod
-    def transform(x, eps=1e-7, lib=np):
+    def transform(x, vmax=1, eps=1e-7, lib=np):
         y0 = np.log10(eps)
-        y1 = np.log10(1. + eps)
+        y1 = np.log10(vmax+ eps)
 
         y = lib.log10(x + eps)
         y -= y0
@@ -373,9 +376,9 @@ class PhotonLib:
         return y
 
     @staticmethod
-    def inv_transform(y, eps=1e-7, lib=np):
+    def inv_transform(y, vmax=1, eps=1e-7, lib=np):
         y0 = np.log10(eps)
-        y1 = np.log10(1. + eps)
+        y1 = np.log10(vmax + eps)
 
         x = 10 ** (y * (y1-y0) + y0)
         x -= eps
