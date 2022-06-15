@@ -10,7 +10,7 @@ from scipy.ndimage import sobel
 
 class Meta:
     def __init__(self, shape, ranges, lib=np):
-        self.shape = np.copy(shape)
+        self.shape = np.copy(shape).astype(int)
         self.ranges = np.copy(ranges)
         self.lib = lib
        
