@@ -133,7 +133,7 @@ class Meta:
             idx = (coord - ranges[:,0]) / step
 
         idx = self.as_int64(idx)
-        idx[idx<0] == 0
+        idx[idx<0] = 0
         for axis in range(3):
             n = self.shape[axis]
             mask = idx[...,axis] >= n
