@@ -384,3 +384,20 @@ class PhotonLib:
         x -= eps
 
         return x
+
+    @staticmethod
+    def save(outpath, vis, meta):
+        vis = np.asarray(vis)
+
+        if vis.ndim == 4:
+            vis = np.swapaxes(vis, 0, 2).reshape(len(meta), -1)
+
+        # TODO check dim(vis) and dim(meta)
+
+        print('[PhotonLib] saving to', outpath)
+        with h5py.File(outpath, 'w') as f:
+            f.create_dataset('numvox', data=meta.shape)
+            f.create_dataset('min', data=meta.ranges[:,0])
+            f.create_dataset('max', data=meta.ranges[:,1])
+            f.create_dataset('vis', data=vis, compression='gzip')
+        print('[PhotonLib] file saved')
