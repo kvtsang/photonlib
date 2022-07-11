@@ -380,9 +380,7 @@ class PhotonLib:
         y0 = np.log10(eps)
         y1 = np.log10(vmax + eps)
 
-        x = 10 ** (y * (y1-y0) + y0)
-        x -= eps
-
+        x = 10 ** (y * (y1-y0) + y0) - eps
         return x
 
     @staticmethod
