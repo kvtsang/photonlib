@@ -259,10 +259,11 @@ class Meta:
 
 class PhotonLib:
     def __init__(
-        self, meta, vis, pmt_pos=None, 
+        self, meta, vis, pmt_pos=None, eff=1,
         transform=False, eps=1e-7, vmax=1, lib=np
     ):
         self.meta = meta
+        self.eff = eff
 
         if transform:
             print(f'[PhotonLib] transform(vmax={vmax}, eps={eps})')
@@ -281,13 +282,14 @@ class PhotonLib:
         print(f'[PhotonLib] loading {filepath}')
         with h5py.File(filepath, 'r') as f:
             vis = f['vis'][:]
+            eff = np.array(f.get('eff', default=1.))
         print('[PhotonLib] file loaded')
 
         pmt_pos = None
         if pmt_loc is not None:
             pmt_pos = PhotonLib.load_pmt_loc(pmt_loc)
 
-        plib = cls(meta, vis, pmt_pos, **kwargs)
+        plib = cls(meta, vis, pmt_pos, eff=eff, lib=lib, **kwargs)
 
         return plib
 
@@ -384,7 +386,7 @@ class PhotonLib:
         return x
 
     @staticmethod
-    def save(outpath, vis, meta):
+    def save(outpath, vis, meta, eff=None):
         vis = np.asarray(vis)
 
         if vis.ndim == 4:
@@ -398,4 +400,8 @@ class PhotonLib:
             f.create_dataset('min', data=meta.ranges[:,0])
             f.create_dataset('max', data=meta.ranges[:,1])
             f.create_dataset('vis', data=vis, compression='gzip')
+
+            if eff is not None:
+                f.create_dataset('eff', data=eff)
+
         print('[PhotonLib] file saved')
