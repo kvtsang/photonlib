@@ -259,15 +259,21 @@ class Meta:
 
 class PhotonLib:
     def __init__(
-        self, meta, vis, pmt_pos=None, eff=1,
-        transform=False, eps=1e-7, vmax=1, lib=np
+        self, meta, vis, pmt_pos=None, eff=1, transform=False, 
+        eps=1e-7, vmax=1, sin_out=False, lib=np
     ):
         self.meta = meta
         self.eff = eff
 
         if transform:
-            print(f'[PhotonLib] transform(vmax={vmax}, eps={eps})')
-            self.vis = self.transform(vis, vmax, eps)
+            print(
+                f'[PhotonLib] transform(vmax={vmax}, eps={eps}), '
+                f'sin_out={sin_out}'
+            )
+            self.log_func, self.antilog_func = PhotonLib.partial_transform(
+                vmax=vmax, eps=eps, sin_out=sin_out, lib=lib
+            )
+            self.vis = self.log_func(vis)
         else:
             self.vis = vis
 
@@ -368,22 +374,35 @@ class PhotonLib:
         return self.view(self.grad_cache[:,d_axis])
 
     @staticmethod
-    def transform(x, vmax=1, eps=1e-7, lib=np):
+    def transform(x, vmax=1, eps=1e-7, sin_out=False, lib=np):
         y0 = np.log10(eps)
         y1 = np.log10(vmax+ eps)
 
         y = lib.log10(x + eps)
         y -= y0
         y /= (y1 - y0)
+
+        if sin_out:
+            return 2*y - 1
+
         return y
 
     @staticmethod
-    def inv_transform(y, vmax=1, eps=1e-7, lib=np):
+    def inv_transform(y, vmax=1, eps=1e-7, sin_out=False, lib=np):
         y0 = np.log10(eps)
         y1 = np.log10(vmax + eps)
 
+        if sin_out:
+            y = (y+1)/2
+
         x = 10 ** (y * (y1-y0) + y0) - eps
         return x
+
+    @staticmethod
+    def partial_transform(**kwargs):
+        log_func = partial(PhotonLib.transform, **kwargs)
+        antilog_func = partial(PhotonLib.inv_transform, **kwargs)
+        return log_func, antilog_func
 
     @staticmethod
     def save(outpath, vis, meta, eff=None):
