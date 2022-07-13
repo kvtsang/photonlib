@@ -395,7 +395,9 @@ class PhotonLib:
         if sin_out:
             y = (y+1)/2
 
-        x = 10 ** (y * (y1-y0) + y0) - eps
+        power = np.power if lib == np else lib.pow
+        #x = 10 ** (y * (y1-y0) + y0) - eps
+        x = power(10., (y * (y1-y0) + y0)) - eps
         return x
 
     @staticmethod
