@@ -263,6 +263,7 @@ class PhotonLib:
         transform=False, eps=1e-7, vmax=1, lib=np
     ):
         self.meta = meta
+        self.grad_cache = None
 
         if transform:
             print(f'[PhotonLib] transform(vmax={vmax}, eps={eps})')
