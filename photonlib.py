@@ -333,7 +333,7 @@ class PhotonLib:
     def __getitem__(self, vox_id):    
         return self.vis[vox_id]
 
-    def gradient_on_fly(self, voxel_id):
+    def _gradient_on_fly(self, voxel_id):
         with self.meta.use_lib(np):
             idx = self.meta.voxel_to_idx(voxel_id)
 
@@ -344,7 +344,7 @@ class PhotonLib:
         high = idx + 2
         low = idx - 1
         low[low<0] = 0
-        selected = selected = tuple(slice(l,h) for l,h in zip(low, high))
+        selected = tuple(slice(l,h) for l,h in zip(low, high))
 
         data = self.vis_view[selected]
         grad = np.column_stack([
@@ -352,6 +352,11 @@ class PhotonLib:
             for pmt in range(self.n_pmts)
         ])
 
+        return grad
+
+    def gradient_on_fly(self, voxels):
+        voxels = [voxels] if np.isscalar(voxels) else np.asarray(voxels)
+        grad = np.array([self._gradient_on_fly(v) for v in voxels])
         return grad
 
     def gradient_from_cache(self, voxel_id):
