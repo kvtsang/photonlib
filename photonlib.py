@@ -269,6 +269,7 @@ class PhotonLib:
     ):
         self.meta = meta
         self.eff = eff
+        self.grad_cache = None
 
         if transform:
             print(
