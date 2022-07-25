@@ -141,6 +141,11 @@ class Meta:
 
         return idx
 
+    def coord_to_voxel(self, coord, norm=False):
+        idx = self.coord_to_idx(coord, norm)
+        vox = self.idx_to_voxel(idx)
+        return vox
+
     def as_int64(self, idx):
         if isinstance(idx, np.ndarray):
             idx = idx.astype(self.lib.int64)
