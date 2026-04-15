@@ -1,3 +1,4 @@
+import json
 import torch
 import pytest
 from photonlib.experimental import AABox
@@ -81,3 +82,63 @@ class TestAABoxDevice:
     def test_dtype_cast(self, ranges):
         box = AABox(ranges).to(dtype=torch.float64)
         assert box.ranges.dtype == torch.float64
+
+
+class TestAABoxHparams:
+    def test_hparams_has_ranges(self, ranges):
+        box = AABox(ranges)
+        hp = box.hparams
+        assert "ranges" in hp
+
+    def test_hparams_values_match(self, ranges):
+        box = AABox(ranges)
+        hp = box.hparams
+        expected = ranges.tolist()
+        assert hp["ranges"] == expected
+
+    def test_hparams_plain_list(self, ranges):
+        box = AABox(ranges)
+        hp = box.hparams
+        assert isinstance(hp["ranges"], list)
+        assert all(isinstance(r, list) for r in hp["ranges"])
+
+    def test_hparams_is_copy(self, ranges):
+        box = AABox(ranges)
+        hp = box.hparams
+        hp["ranges"][0][0] = 9999.0
+        assert box.hparams["ranges"][0][0] != 9999.0
+
+    def test_from_hparams_ranges_roundtrip(self, ranges):
+        box = AABox(ranges)
+        box2 = AABox.from_hparams(box.hparams)
+        assert torch.allclose(box2.ranges, box.ranges)
+
+    def test_from_hparams_integer_ranges(self):
+        box = AABox.from_hparams({"ranges": [[-1, 1], [0, 10]]})
+        assert box.ranges.shape == (2, 2)
+
+    def test_from_hparams_file(self, plib_h5):
+        filepath, meta, _ = plib_h5
+        box_from_file = AABox.load(filepath)
+        box2 = AABox.from_hparams({"file": filepath})
+        assert torch.allclose(box2.ranges, box_from_file.ranges)
+
+    def test_from_hparams_file_with_group(self, plib_h5_grouped):
+        filepath, (meta_a, _), _ = plib_h5_grouped
+        box_from_file = AABox.load(filepath, group="vol_a")
+        box2 = AABox.from_hparams({"file": filepath, "group": "vol_a"})
+        assert torch.allclose(box2.ranges, box_from_file.ranges)
+
+    def test_from_hparams_empty_raises(self):
+        with pytest.raises(ValueError):
+            AABox.from_hparams({})
+
+    def test_from_hparams_unrelated_keys_raises(self):
+        with pytest.raises(ValueError):
+            AABox.from_hparams({"foo": "bar"})
+
+    def test_json_roundtrip(self, ranges):
+        box = AABox(ranges)
+        hp = json.loads(json.dumps(box.hparams))
+        box2 = AABox.from_hparams(hp)
+        assert torch.allclose(box2.ranges, box.ranges)

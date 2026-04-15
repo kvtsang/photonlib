@@ -219,22 +219,58 @@ class AABox(nn.Module):
         ranges = np.stack([mins, maxs], axis=-1)
         return cls(ranges)
 
-    # ---- repr ------------------------------------------------------
 
-    def extra_repr(self) -> str:
-        """
-        Return the box specification for :func:`repr`.
+    # ---- hparams --------------------------------------------------
+
+	@classmethod
+	def from_hparams(cls, hparams: dict) -> "AABox":
+		"""Reconstruct an :class:`AABox` from a ``hparams`` dict.
+
+		Parameters
+		----------
+		hparams : dict
+			Recognised forms:
+
+			* ``{"ranges": [[lo, hi], ...]}`` – construct directly from ranges.
+			* ``{"file": "<path>"}`` – load from HDF5 via :meth:`AABox.load`.
+			* ``{"file": "<path>", "group": "<group>"}`` – load from a
+			  specific HDF5 group.
+
+		Returns
+		-------
+		AABox
+
+		Raises
+		------
+		ValueError
+			If *hparams* contains neither ``"ranges"`` nor ``"file"``.
+		"""
+		if "ranges" in hparams:
+			return cls(hparams["ranges"])
+
+		if "file" in hparams:
+			return cls.load(hparams["file"], group=hparams.get("group", None))
+
+		raise ValueError(
+			"AABox hparams must contain either 'ranges' or 'file'. "
+			f"Got keys: {list(hparams.keys())}"
+		)
+
+    @property
+    def hparams(self) -> dict:
+        """Return a plain, serialisable dict sufficient to reconstruct this
+        :class:`AABox` via :meth:`from_hparams`.
 
         Returns
         -------
-        str
+        dict
+            ``{"ranges": [[lo, hi], ...]}`` where each sub‐list corresponds
+            to one spatial axis.
         """
-        mins = self.mins.tolist()
-        maxs = self.maxs.tolist()
-        return (
-            f"ndim={self.ndim}, mins={mins}, maxs={maxs}"
-        )
+        return {"ranges": self.ranges.tolist()}
 
+
+# -----------------------------------------------------------------------------
 
 class VoxelMeta(AABox):
     """Voxelised axis-aligned box.
@@ -571,7 +607,7 @@ class VoxelMeta(AABox):
 # ---- module-level helpers ----------------------------------
 def _read_h5(grp, key, dtype):
     """
-	Read key from attrs, falling back to dataset.
+    Read key from attrs, falling back to dataset.
 
     Parameters
     ----------
