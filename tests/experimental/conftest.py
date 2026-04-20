@@ -205,3 +205,8 @@ def sampler(plib, sampler_batch_size):
 def dataset(plib):
     from photonlib.experimental.dataloader import PhotonLibDataset
     return PhotonLibDataset(plib)
+
+@pytest.fixture
+def plib_cfg(plib_h5):
+    filepath, _, _ = plib_h5
+    return dict(file=filepath)

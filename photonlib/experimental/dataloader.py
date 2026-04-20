@@ -377,7 +377,31 @@ class PhotonLibSampler(nn.Module):
                 break
 
             yield self.coords[idx], self.plib.vis[idx]
+            
+    # ---- factory -------------------------------------------
 
+
+    @classmethod
+    def make_dataloader(cls, plib: PhotonLib, **kwargs):
+        """Create a DataLoader using PhotonLibSampler.
+
+        This is a convenience factory method that mirrors the interface of
+        PhotonLibDataset.make_dataloader. It is a simple wrapper around
+        the PhotonLibSampler constructor.
+
+        Parameters
+        ----------
+        plib : PhotonLib
+            PhotonLib instance to sample from.
+        **kwargs
+            Additional keyword arguments passed to the PhotonLibSampler constructor.
+
+        Returns
+        -------
+        PhotonLibSampler
+            A PhotonLibSampler instance configured as a DataLoader.
+        """
+        return cls(plib, **kwargs)
 
     # ---- repr ----------------------------------------------
 
@@ -395,4 +419,53 @@ class PhotonLibSampler(nn.Module):
             f"shuffle={self.shuffle}, "
             f"drop_last={self.drop_last}, "
             f"device={self.device}"
+        )
+
+# -----------------------------------------------------------------------------
+# Single factory function
+# -----------------------------------------------------------------------------
+def create_dataloader(memory: str, photonlib: dict, **kwargs):
+
+    """Factory function to create a dataloader with the appropriate memory
+    strategy.
+
+    Parameters
+    ----------
+    memory : str
+        Memory strategy. One of:
+        - 'single': Single device (CPU or GPU) with blocking dataloader.
+          Uses PhotonLib and PhotonLibSampler.
+        - 'share': Shared CPU memory with multi-process loader and pre-fetching.
+          Uses PhotonLib and PhotonLibDataset.
+        - 'lazy': Lazy loading with shared CPU memory and multi-process loader.
+          Uses LazyPhotonLib and PhotonLibDataset.
+    photonlib : dict
+        Keyword arguments passed to PhotonLib.load or LazyPhotonLib.load.
+    **kwargs
+        Additional keyword arguments passed to the corresponding
+        make_dataloader class method.
+
+    Returns
+    -------
+    PhotonLibSampler or DataLoader
+        A PhotonLibSampler (for 'single') or a DataLoader (for 'share'/'lazy').
+
+    Raises
+    ------
+    ValueError
+        If `memory` is not one of 'single', 'share', or 'lazy'.
+    """
+    if memory == 'single':
+        plib = PhotonLib.load(**photonlib)
+        return PhotonLibSampler.make_dataloader(plib, **kwargs)
+    elif memory == 'share':
+        plib = PhotonLib.load(**photonlib)
+        return PhotonLibDataset.make_dataloader(plib, **kwargs)
+    elif memory == 'lazy':
+        plib = LazyPhotonLib.load(**photonlib)
+        return PhotonLibDataset.make_dataloader(plib, **kwargs)
+    else:
+        raise ValueError(
+            f"Unknown memory strategy '{memory}'. "
+            f"Expected one of: 'single', 'share', 'lazy'."
         )

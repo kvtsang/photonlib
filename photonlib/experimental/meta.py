@@ -214,47 +214,47 @@ class AABox(nn.Module):
 
         grp = file if group is None else file[group]
 
-        mins = _read_h5(grp, "min")
-        maxs = _read_h5(grp, "max")
+        mins = _read_h5(grp, "min", np.float32)
+        maxs = _read_h5(grp, "max", np.float32)
         ranges = np.stack([mins, maxs], axis=-1)
         return cls(ranges)
 
 
     # ---- hparams --------------------------------------------------
 
-	@classmethod
-	def from_hparams(cls, hparams: dict) -> "AABox":
-		"""Reconstruct an :class:`AABox` from a ``hparams`` dict.
+    @classmethod
+    def from_hparams(cls, hparams: dict) -> "AABox":
+        """Reconstruct an :class:`AABox` from a ``hparams`` dict.
 
-		Parameters
-		----------
-		hparams : dict
-			Recognised forms:
+        Parameters
+        ----------
+        hparams : dict
+            Recognised forms:
 
-			* ``{"ranges": [[lo, hi], ...]}`` – construct directly from ranges.
-			* ``{"file": "<path>"}`` – load from HDF5 via :meth:`AABox.load`.
-			* ``{"file": "<path>", "group": "<group>"}`` – load from a
-			  specific HDF5 group.
+            * ``{"ranges": [[lo, hi], ...]}`` – construct directly from ranges.
+            * ``{"file": "<path>"}`` – load from HDF5 via :meth:`AABox.load`.
+            * ``{"file": "<path>", "group": "<group>"}`` – load from a
+              specific HDF5 group.
 
-		Returns
-		-------
-		AABox
+        Returns
+        -------
+        AABox
 
-		Raises
-		------
-		ValueError
-			If *hparams* contains neither ``"ranges"`` nor ``"file"``.
-		"""
-		if "ranges" in hparams:
-			return cls(hparams["ranges"])
+        Raises
+        ------
+        ValueError
+            If *hparams* contains neither ``"ranges"`` nor ``"file"``.
+        """
+        if "ranges" in hparams:
+            return cls(hparams["ranges"])
 
-		if "file" in hparams:
-			return cls.load(hparams["file"], group=hparams.get("group", None))
+        if "file" in hparams:
+            return cls.load(hparams["file"], group=hparams.get("group", None))
 
-		raise ValueError(
-			"AABox hparams must contain either 'ranges' or 'file'. "
-			f"Got keys: {list(hparams.keys())}"
-		)
+        raise ValueError(
+            "AABox hparams must contain either 'ranges' or 'file'. "
+            f"Got keys: {list(hparams.keys())}"
+        )
 
     @property
     def hparams(self) -> dict:

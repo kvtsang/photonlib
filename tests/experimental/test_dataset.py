@@ -2,8 +2,11 @@ import torch
 import pytest
 from torch.utils.data import DataLoader
 
-from photonlib.experimental import PhotonLib, LazyPhotonLib
-from photonlib.experimental.dataloader import PhotonLibDataset, _CollateFn
+from photonlib.experimental import (
+    PhotonLib, LazyPhotonLib, PhotonLibDataset, PhotonLibSampler,
+	create_dataloader,
+)
+from photonlib.experimental.dataloader import _CollateFn
 
 
 # ---- Construction --------------------------------------------
@@ -271,8 +274,6 @@ class TestDatasetMultiWorker:
 
 class TestDatasetSamplerConsistency:
     def test_matches_sampler_first_batch(self, plib):
-        from photonlib.experimental.dataloader import PhotonLibSampler
-
         loader = PhotonLibDataset.make_dataloader(
             plib, batch_size=64, shuffle=False, drop_last=False,
         )
@@ -286,8 +287,6 @@ class TestDatasetSamplerConsistency:
             break
 
     def test_matches_sampler_full_epoch(self, plib):
-        from photonlib.experimental.dataloader import PhotonLibSampler
-
         loader = PhotonLibDataset.make_dataloader(
             plib, batch_size=64, shuffle=False, drop_last=False,
         )
@@ -298,3 +297,36 @@ class TestDatasetSamplerConsistency:
         for (coord_dl, vis_dl), (coord_s, vis_s) in zip(loader, sampler):
             assert torch.allclose(coord_dl, coord_s, atol=1e-6)
             assert torch.allclose(vis_dl, vis_s, atol=1e-6)
+
+    def test_make_dataloader_returns_sampler(self, plib):
+        """make_dataloader should return a PhotonLibSampler instance."""
+        loader = PhotonLibSampler.make_dataloader(
+            plib, batch_size=32, device='cpu'
+        )
+        assert isinstance(loader, PhotonLibSampler)
+
+
+# ---- Dataloader factory -----------------------------------------------------
+class TestCreateDataloader:
+
+    def test_single(self, plib_cfg):
+        loader = create_dataloader("single", plib_cfg, batch_size=32)
+        assert isinstance(loader, PhotonLibSampler)
+        assert isinstance(loader.plib, PhotonLib)
+        assert loader.batch_size == 32
+
+    def test_share(self, plib_cfg):
+        loader = create_dataloader("share", plib_cfg, batch_size=32)
+        assert isinstance(loader, DataLoader)
+        assert isinstance(loader.dataset.plib, PhotonLib)
+        assert loader.batch_size == 32
+
+    def test_lazy(self, plib_cfg):
+        loader = create_dataloader("lazy", plib_cfg, batch_size=32)
+        assert isinstance(loader, DataLoader)
+        assert isinstance(loader.dataset.plib, LazyPhotonLib)
+        assert loader.batch_size == 32
+
+    def test_invalid(self, plib_cfg):
+        with pytest.raises(ValueError, match="Unknown memory strategy"):
+            create_dataloader("invalid", plib_cfg)
